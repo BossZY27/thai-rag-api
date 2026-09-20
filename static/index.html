@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Thai RAG API Demo</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Local AI Knowledge Assistant</p>
+          <h1>ถามตอบจากฐานความรู้ภาษาไทย</h1>
+          <p class="summary">
+            เว็บจำลองสำหรับทดสอบ API: จัดหมวดข้อมูลก่อนค้น เพื่อให้ AI หาคำตอบจากฐานข้อมูลได้ตรงขึ้น
+          </p>
+        </div>
+        <div class="status" id="healthStatus">กำลังตรวจระบบ...</div>
+      </section>
+
+      <section class="layout">
+        <aside class="sidePanel">
+          <label class="field">
+            <span>API Key</span>
+            <input id="apiKey" type="password" placeholder="เว้นว่างได้ถ้ายังไม่ได้ตั้ง" />
+          </label>
+
+          <div class="sectionBlock">
+            <div class="sectionHeader">
+              <h2>หมวดข้อมูล</h2>
+              <span id="categoryCount">0 หมวด</span>
+            </div>
+            <div id="categories" class="categoryList"></div>
+          </div>
+
+          <div class="sectionBlock">
+            <div class="sectionHeader">
+              <h2>ฐานความรู้</h2>
+              <span id="documentCount">0 ชุด</span>
+            </div>
+            <div id="documents" class="documents">ยังไม่มีข้อมูล</div>
+          </div>
+
+          <div class="sectionBlock labBox">
+            <div class="sectionHeader">
+              <h2>ชุดทดสอบ</h2>
+              <button id="loadLogsButton" class="smallButton" type="button">ดู Log</button>
+            </div>
+            <textarea
+              id="batchQuestions"
+              rows="8"
+              placeholder="ใส่คำถามทดสอบ บรรทัดละ 1 คำถาม เช่น&#10;ประกาศนี้เป็นของหน่วยงานไหน&#10;สมัครผ่านเว็บไหน&#10;ทุนนำเสนอผลงานได้กี่บาท"
+            ></textarea>
+            <button id="runBatchButton" class="secondaryButton" type="button">รันทดสอบหลายคำถาม</button>
+            <div id="labResults" class="labResults">ยังไม่มีผลทดสอบ</div>
+          </div>
+        </aside>
+
+        <section class="chatPanel">
+          <div class="chatTop">
+            <div>
+              <p class="eyebrow small">Selected Scope</p>
+              <h2 id="selectedCategoryLabel">ทุกหมวดข้อมูล</h2>
+            </div>
+            <div id="selectedCategoryLevel" class="levelPill">ค้นทุกระดับ</div>
+          </div>
+          <div class="modeSwitch">
+            <div>
+              <p class="modeTitle">โหมดคำตอบ</p>
+              <p class="modeHint">เร็ว = ตอบจากฐานข้อมูลแบบไม่เดา ถ้าไม่เจอจะบอกไม่พบ, ละเอียด = ให้โมเดลเรียบเรียงเพิ่ม</p>
+            </div>
+            <div class="modeSegment" role="group" aria-label="โหมดการตอบ">
+              <button class="modeButton active" type="button" data-mode="fast">เร็ว</button>
+              <button class="modeButton" type="button" data-mode="llm">ละเอียด</button>
+            </div>
+          </div>
+
+          <div id="messages" class="messages">
+            <div class="message assistant">
+              <div class="bubble">
+                เลือกหมวดทางซ้ายถ้ารู้ขอบเขตคำถาม หรือถามรวมได้เลย เช่น “ถ้าจะขอทุน ต้องรู้เรื่องอะไรบ้างจากประกาศนี้”
+              </div>
+            </div>
+          </div>
+
+          <form id="chatForm" class="composer">
+            <textarea
+              id="question"
+              rows="3"
+              placeholder="พิมพ์คำถามเกี่ยวกับฐานความรู้..."
+            ></textarea>
+            <button type="submit">ถาม AI</button>
+          </form>
+        </section>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

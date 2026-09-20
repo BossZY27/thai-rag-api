@@ -1,0 +1,23 @@
+# Python environments and caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local-only credentials and generated data
+.env
+.env.*
+!.env.example
+credentials/
+data/
+*.pem
+*.key
+*.p12
+*.log
+*.csv
+*.xlsx
+*.db
+*.sqlite
+node_modules/
+dist/
+build/
