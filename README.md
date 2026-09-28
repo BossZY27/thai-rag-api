@@ -1,117 +1,201 @@
 # Thai RAG API
 
-API ต้นแบบสำหรับถามตอบจากฐานข้อมูลความรู้ภาษาไทย โดยใช้ Ollama บนเครื่อง
+FastAPI prototype สำหรับถามตอบจากฐานความรู้ภาษาไทยบนเครื่อง ใช้ Ollama สร้าง embeddings สำหรับค้นเอกสารแบบ hybrid และเลือกตอบด้วยกฎที่ตรวจสอบได้หรือ local LLM พร้อมคืนแหล่งอ้างอิง
 
-- โมเดลตอบคำถาม: `qwen3.5:9b-q4_K_M`
-- โมเดลค้นเอกสาร: `bge-m3`
-- API framework: FastAPI
-- ที่เก็บข้อมูลต้นแบบ: SQLite ใน `data/rag.sqlite3`
+> สถานะ: ต้นแบบสำหรับ local development ใช้ SQLite และ Ollama ยังไม่ใช่บริการ production และไม่มีผล benchmark ที่ยืนยันความแม่นยำใน repository
 
-## 1. เตรียม Ollama
+## ความสามารถที่ตรวจสอบได้จากโค้ด
 
-ต้องมีโมเดลสองตัวนี้ก่อน:
+- เพิ่มความรู้จากข้อความหรือ PDF ที่มี selectable text
+- แบ่งเอกสารเป็น chunks และเก็บ embeddings ใน SQLite
+- จัดอันดับด้วย semantic similarity, keyword score และ category boost
+- โหมด `fast` ตอบด้วยกฎจากหลักฐานที่ค้นได้
+- โหมด `llm` ส่ง context ที่ค้นได้ให้ local chat model ผ่าน Ollama
+- คืน source metadata, intent, เวลา และ debug scores ใน response
+- เก็บ QA logs และ feedback
+- มี batch test endpoint สำหรับคำถามไม่เกิน 30 ข้อต่อครั้ง
+- มีหน้าเว็บตัวอย่างและ Swagger UI
 
-```powershell
-ollama pull qwen3.5:9b-q4_K_M
-ollama pull bge-m3
+ทั้งโหมด `fast` และ `llm` ต้องใช้ embedding model ผ่าน Ollama ส่วน chat model ถูกเรียกเฉพาะโหมด `llm`
+
+## Workflow
+
+```mermaid
+flowchart LR
+    A[ข้อความหรือ PDF] --> B[สกัดและแบ่ง chunks]
+    B --> C[Ollama Embedding]
+    C --> D[SQLite Knowledge Store]
+    E[คำถามภาษาไทย] --> F[Hybrid Ranking]
+    D --> F
+    F --> G{mode}
+    G -->|fast| H[Rule-based answer from evidence]
+    G -->|llm| I[Ollama Chat with retrieved context]
+    H --> J[Answer + Sources + Debug]
+    I --> J
+    J --> K[QA Log / Feedback]
 ```
 
-เช็กว่า Ollama ทำงาน:
+## เทคโนโลยี
+
+- Python และ FastAPI
+- SQLite
+- Ollama HTTP API
+- `bge-m3` เป็น embedding model เริ่มต้น
+- `qwen3.5:9b-q4_K_M` เป็น chat model เริ่มต้น
+- `pdfplumber` สำหรับ PDF ที่มีชั้นข้อความ
+
+## ติดตั้งบนเครื่อง
+
+### 1. เตรียม Ollama
 
 ```powershell
+ollama pull bge-m3
+ollama pull qwen3.5:9b-q4_K_M
 ollama list
 ```
 
-## 2. ติดตั้ง Python packages
+หากเปลี่ยนชื่อโมเดล ให้ตั้ง `EMBED_MODEL` หรือ `CHAT_MODEL` ให้ตรงกับโมเดลที่มีจริงในเครื่อง
 
-แนะนำให้สร้าง virtual environment ก่อน:
+### 2. เตรียม Python environment
 
 ```powershell
-cd "C:\Users\Lenovo\Desktop\My Project\thai-rag-api"
+git clone https://github.com/BossZY27/thai-rag-api.git
+cd thai-rag-api
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 ```
 
-## 3. ตั้งค่า API key
+### 3. ตั้ง environment variables
 
-สำหรับลองบนเครื่องจะยังไม่ตั้งก็ได้ แต่ถ้าจะให้คนอื่นใช้ต้องตั้ง:
+โค้ดอ่านค่าจาก process environment โดยตรง ไฟล์ `.env.example` เป็นรายการอ้างอิงและไม่ได้ถูกโหลดอัตโนมัติในโค้ดปัจจุบัน สำหรับ PowerShell ให้ตั้งค่าใน session ที่จะรัน API:
 
 ```powershell
-$env:RAG_API_KEY = "my-secret-key"
+$env:OLLAMA_URL = "http://127.0.0.1:11434"
+$env:CHAT_MODEL = "qwen3.5:9b-q4_K_M"
+$env:EMBED_MODEL = "bge-m3"
+$env:RAG_API_KEY = "replace_with_a_long_random_value"
+$env:MAX_CONTEXT_CHARS = "5200"
+$env:MAX_ANSWER_TOKENS = "360"
+$env:OLLAMA_KEEP_ALIVE = "10m"
 ```
 
-## 4. เปิด API
+| ตัวแปร | ค่าเริ่มต้น | หน้าที่ |
+|---|---|---|
+| `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server |
+| `CHAT_MODEL` | `qwen3.5:9b-q4_K_M` | โมเดลสำหรับ `mode=llm` |
+| `EMBED_MODEL` | `bge-m3` | โมเดลค้นเอกสาร |
+| `RAG_API_KEY` | ว่าง | ตรวจ header `x-api-key` เมื่อกำหนดค่า |
+| `MAX_CONTEXT_CHARS` | `5200` | จำกัดข้อความ context |
+| `MAX_ANSWER_TOKENS` | `360` | จำกัดผลตอบจาก chat model |
+| `OLLAMA_KEEP_ALIVE` | `10m` | เวลาคงโมเดลไว้ใน Ollama |
+
+หาก `RAG_API_KEY` ว่าง route ที่มี dependency จะไม่บังคับ key ซึ่งเหมาะเฉพาะการทดลองบนเครื่อง ห้ามเปิด service ออกสู่เครือข่ายโดยไม่มีการป้องกัน
+
+### 4. เริ่ม API
 
 ```powershell
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-เปิดเอกสาร API ได้ที่:
+เปิด:
 
-```text
-http://127.0.0.1:8000/docs
-```
+- Web client: `http://127.0.0.1:8000/`
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- Health check: `http://127.0.0.1:8000/health`
 
-เปิดหน้าเว็บจำลองสำหรับผู้ใช้ได้ที่:
+## เพิ่มข้อมูลสังเคราะห์
 
-```text
-http://127.0.0.1:8000/
-```
-
-## 5. ใส่ข้อมูลเข้าฐานความรู้
-
-ในระบบจริง ข้อมูลส่วนนี้จะมาจาก database ของเรา เช่นตารางประกาศ/ข่าว/FAQ
-สำหรับต้นแบบนี้สามารถเพิ่มข้อความผ่าน API ได้:
+ตัวอย่างนี้ใช้ข้อมูลสมมติและไม่มีข้อมูลลูกค้าหรือเอกสารจริง:
 
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/knowledge/text" `
   -H "Content-Type: application/json" `
-  -H "x-api-key: my-secret-key" `
-  -d "{\"title\":\"ประกาศตัวอย่าง\",\"source_ref\":\"db:announcements:1\",\"text\":\"ข้อความความรู้ที่ต้องการให้ AI ใช้อ้างอิง\"}"
+  -H "x-api-key: replace_with_a_long_random_value" `
+  -d '{"title":"คู่มือทดลอง","source_ref":"demo:manual:1","text":"ระบบรับคำขอวันจันทร์ถึงวันศุกร์ เวลา 09:00 ถึง 16:00 น.","category":"process"}'
 ```
 
-ถ้ายังไม่ได้ตั้ง `RAG_API_KEY` ให้เอาบรรทัด `-H "x-api-key: ..."` ออก
+หากไม่ได้ตั้ง `RAG_API_KEY` ให้ตัด header `x-api-key` ออก
 
-## 6. เครื่องมือช่วยสำหรับ admin: อัปโหลด PDF
-
-ใช้หน้า `/docs` ง่ายสุด หรือใช้ PowerShell:
-
-```powershell
-curl.exe -X POST "http://127.0.0.1:8000/documents/upload" `
-  -H "x-api-key: my-secret-key" `
-  -F "file=@C:\Users\Lenovo\Downloads\1. ประกาศหลักเกณฑ์-2569.pdf"
-```
-
-ถ้ายังไม่ได้ตั้ง `RAG_API_KEY` ให้เอาบรรทัด `-H "x-api-key: ..."` ออก
-
-หรือโหลด PDF เข้า database ล่วงหน้าผ่านสคริปต์ admin:
-
-```powershell
-python scripts/load_pdf.py "C:\Users\Lenovo\Downloads\1. ประกาศหลักเกณฑ์-2569.pdf"
-```
-
-## 7. ถามคำถาม
+## ถามคำถาม
 
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/chat" `
   -H "Content-Type: application/json" `
-  -H "x-api-key: my-secret-key" `
-  -d "{\"question\":\"ประกาศนี้เกี่ยวกับเรื่องอะไร สรุปสั้น ๆ\"}"
+  -H "x-api-key: replace_with_a_long_random_value" `
+  -d '{"question":"ระบบรับคำขอวันไหนและเวลาใด","mode":"fast","top_k":8}'
 ```
 
-## หมายเหตุเรื่อง PDF สแกน
+ตัวอย่างโครงสร้าง response ต่อไปนี้เป็นข้อมูลสังเคราะห์ ไม่ใช่ผล benchmark:
 
-ถ้า API ตอบว่า `No selectable text found` แปลว่า PDF เป็นไฟล์สแกนหรือรูปภาพ ต้อง OCR ก่อน
-แล้วค่อยอัปโหลดไฟล์ที่มีข้อความจริงเข้าระบบ
+```json
+{
+  "answer": "[คำตอบที่สร้างจากหลักฐานที่ค้นพบ]",
+  "sources": [
+    {
+      "document_id": "demo-id",
+      "title": "คู่มือทดลอง",
+      "page": 1,
+      "category": "process",
+      "score": 0.0
+    }
+  ],
+  "elapsed_ms": 0,
+  "log_id": 1,
+  "intent": "process",
+  "debug": {}
+}
+```
 
-## เส้นทางต่อยอด
+ค่าตัวเลขเป็น placeholder เพื่อแสดงชนิดข้อมูลเท่านั้น ผลจริงขึ้นกับเครื่อง โมเดล และฐานความรู้
 
-เมื่อต้องเปิดให้คนอื่นใช้จริง ควรเพิ่มอย่างน้อย:
+## โหลด PDF
 
-- ฐานข้อมูลจริง เช่น PostgreSQL + pgvector หรือ Qdrant
-- API key แยกตามลูกค้า
-- rate limit
-- logging และ usage tracking
-- queue สำหรับ ingest เอกสารใหญ่
-- deploy บน Cloud VM ที่มี RAM/GPU พอ ไม่ควรเปิดจากโน้ตบุ๊กส่วนตัว
+ผ่าน API:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/documents/upload" `
+  -H "x-api-key: replace_with_a_long_random_value" `
+  -F "file=@C:\path\to\document.pdf"
+```
+
+หรือสคริปต์ admin จาก root ของ repository:
+
+```powershell
+python scripts/load_pdf.py "C:\path\to\document.pdf"
+```
+
+สคริปต์ตรวจว่าไฟล์มีอยู่และเป็น `.pdf` ก่อนเรียกตัวสกัดข้อความ หาก PDF เป็นภาพสแกนและไม่มี selectable text ระบบจะหยุดพร้อมข้อความว่าต้อง OCR ก่อน
+
+## API สำคัญ
+
+| Method | Endpoint | หน้าที่ |
+|---|---|---|
+| `GET` | `/health` | แสดงค่าบริการที่ใช้อยู่ |
+| `GET` | `/documents` | รายการเอกสาร |
+| `GET` | `/categories` | หมวดหมู่และจำนวน chunks |
+| `GET` | `/debug/search` | ตรวจผลจัดอันดับ |
+| `POST` | `/knowledge/text` | เพิ่มข้อความเข้าฐานความรู้ |
+| `POST` | `/documents/upload` | เพิ่ม PDF |
+| `DELETE` | `/documents/{document_id}` | ลบเอกสารและ chunks |
+| `POST` | `/chat` | ถามคำถามด้วย `fast` หรือ `llm` mode |
+| `POST` | `/feedback` | บันทึก feedback |
+| `GET` | `/logs` | อ่าน QA logs |
+| `POST` | `/test/batch` | ทดสอบคำถามเป็นชุด |
+
+## ตรวจคุณภาพแบบไม่เรียก Ollama
+
+```powershell
+python -m compileall app scripts
+```
+
+การทดสอบ ingest และ `/chat` เป็น integration test เพราะเรียก Ollama จึงไม่ได้รวมใน static check นี้
+
+## ข้อจำกัดและความปลอดภัย
+
+- SQLite และ API key เดียวเหมาะกับ prototype ไม่ใช่ multi-tenant production
+- embeddings ถูกเก็บเป็น JSON ใน SQLite จึงไม่เหมาะกับฐานข้อมูลขนาดใหญ่
+- PDF แบบสแกนต้องผ่าน OCR ก่อน
+- `/health` เปิดเผย path ฐานข้อมูลและชื่อโมเดล จึงไม่ควรเปิด public โดยไม่มี reverse proxy/access control
+- debug, logs และ source snippets อาจมีเนื้อหาเอกสาร ควรกำหนด retention และสิทธิ์ก่อนใช้ข้อมูลจริง
+- ห้าม commit `.env`, `data/`, เอกสารจริง หรือ API key ขึ้น repository
